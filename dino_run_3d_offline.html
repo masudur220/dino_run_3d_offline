@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dino Run 3D — Offline Runner</title>
+<style>
+  :root{color-scheme:dark;--glass:rgba(9,27,48,.62);--line:rgba(255,255,255,.18)}
+  *{box-sizing:border-box}
+  html,body{margin:0;width:100%;height:100%;overflow:hidden;font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;background:#0c1a2c;color:#fff}
+  body{display:grid;place-items:center}
+  .game-shell{position:relative;width:100vw;height:100vh;min-height:420px;overflow:hidden;background:#70c7ff}
+  canvas{display:block;width:100%;height:100%;touch-action:manipulation}
+  .hud{position:absolute;inset:0;pointer-events:none}
+  .score-card{position:absolute;top:clamp(14px,3vh,30px);padding:10px 18px 12px;min-width:112px;text-align:center;background:var(--glass);border:1px solid var(--line);border-radius:17px;box-shadow:0 8px 28px #163f6926;backdrop-filter:blur(10px)}
+  .score-card.left{left:clamp(14px,3vw,32px)}.score-card.right{right:clamp(14px,3vw,32px)}
+  .score-card small{display:block;font-size:11px;font-weight:800;letter-spacing:.18em;color:#c6e8ff}
+  .score-card strong{display:block;font-size:clamp(24px,3.2vw,36px);line-height:1.15;font-variant-numeric:tabular-nums}
+  .hint{position:absolute;top:clamp(20px,4vh,38px);left:50%;transform:translateX(-50%);white-space:nowrap;padding:12px 20px;border:1px solid var(--line);border-radius:999px;background:var(--glass);font-size:clamp(11px,1.4vw,15px);font-weight:700;box-shadow:0 8px 25px #163f6926}
+  .overlay{position:absolute;inset:0;display:grid;place-items:center;padding:20px;background:linear-gradient(180deg,#09213b10,#061a2d55);transition:opacity .2s}
+  .overlay.hidden{opacity:0;pointer-events:none}
+  .panel{width:min(440px,92vw);text-align:center;padding:30px 26px 25px;border:1px solid #ffffff38;border-radius:26px;background:linear-gradient(145deg,#143a60eF,#10233bed);box-shadow:0 25px 80px #04132665;backdrop-filter:blur(14px)}
+  .logo{font-size:12px;letter-spacing:.25em;font-weight:900;color:#7be8c2;text-transform:uppercase}
+  h1{margin:9px 0 8px;font-size:clamp(32px,6vw,48px);line-height:1;letter-spacing:-.05em}
+  .panel p{margin:12px auto 20px;max-width:330px;color:#c5d9e9;font-size:14px;line-height:1.65}
+  button{pointer-events:auto;cursor:pointer;border:0;border-radius:14px;padding:13px 24px;font:800 14px inherit;color:#083322;background:linear-gradient(135deg,#a4ffd8,#48e5a4);box-shadow:0 7px 0 #1a9b70,0 14px 30px #18cb8d30;transition:transform .12s,filter .12s}
+  button:hover{filter:brightness(1.06);transform:translateY(-1px)}button:active{transform:translateY(3px);box-shadow:0 3px 0 #1a9b70}
+  .controls{display:flex;justify-content:center;gap:8px;flex-wrap:wrap;margin-top:18px;color:#b9ccde;font-size:11px}
+  .key{padding:5px 8px;border:1px solid #ffffff2b;border-radius:7px;background:#ffffff0b;color:white;font-weight:800}
+  .footer{position:absolute;bottom:13px;left:0;right:0;text-align:center;color:#ffffffa6;font-size:10px;letter-spacing:.08em;pointer-events:none}
+  .mobile-jump{display:none;position:absolute;right:18px;bottom:35px;width:78px;height:78px;border-radius:50%;color:#063725;background:#9fffd9dc;border:2px solid #ffffff90;font-size:12px;font-weight:900;box-shadow:0 8px 28px #082a4055}
+  @media(max-width:600px){.hint{top:85px}.score-card{top:14px}.score-card{min-width:82px;padding:8px 12px}.score-card small{font-size:9px}.score-card strong{font-size:24px}.mobile-jump{display:block}.footer{bottom:10px}}
+  @media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="game-shell" id="shell">
+  <canvas id="game" aria-label="Dino Run 3D game. Press space or tap to jump."></canvas>
+  <div class="hud">
+    <div class="score-card left"><small>SCORE</small><strong id="score">00000</strong></div>
+    <div class="hint" id="hint">SPACE / ↑ / TAP TO JUMP</div>
+    <div class="score-card right"><small>BEST</small><strong id="best">00000</strong></div>
+  </div>
+  <div class="overlay" id="overlay">
+    <div class="panel">
+      <div class="logo">◆ Offline arcade ◆</div>
+      <h1 id="title">Dino Run <span style="color:#63efb0">3D</span></h1>
+      <p id="message">Dash through a colorful desert, leap over giant cacti, and see how long you can survive.</p>
+      <button id="start">START RUNNING&nbsp; →</button>
+      <div class="controls"><span class="key">SPACE</span><span class="key">↑</span><span class="key">W</span><span>jump</span><span style="opacity:.45">•</span><span class="key">P</span><span>pause</span></div>
+    </div>
+  </div>
+  <button class="mobile-jump" id="jumpBtn" aria-label="Jump">JUMP ↑</button>
+  <div class="footer">NO INTERNET REQUIRED · YOUR BEST SCORE IS SAVED ON THIS DEVICE</div>
+</div>
+<script>
+(() => {
+  'use strict';
+  const canvas=document.getElementById('game'),ctx=canvas.getContext('2d');
+  const scoreEl=document.getElementById('score'),bestEl=document.getElementById('best'),overlay=document.getElementById('overlay');
+  const titleEl=document.getElementById('title'),messageEl=document.getElementById('message'),startBtn=document.getElementById('start'),hint=document.getElementById('hint');
+  let W=0,H=0,DPR=1,last=0,elapsed=0,score=0,best=0,speed=360,spawnTimer=0,groundOffset=0,clouds=[],rocks=[],obstacles=[],particles=[];
+  let state='ready',jumpY=0,jumpV=0,runCycle=0,flash=0,pausedFrom='playing';
+  const rand=(a,b)=>a+Math.random()*(b-a),clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+  try{best=Number(localStorage.getItem('dinoRun3DBest')||0)}catch(e){} bestEl.textContent=fmt(best);
+  function fmt(n){return String(Math.floor(n)).padStart(5,'0')}
+  function resize(){
+    const r=canvas.getBoundingClientRect();W=r.width;H=r.height;DPR=Math.min(window.devicePixelRatio||1,2);
+    canvas.width=Math.round(W*DPR);canvas.height=Math.round(H*DPR);ctx.setTransform(DPR,0,0,DPR,0,0);
+    clouds=Array.from({length:8},(_,i)=>({x:rand(0,W),y:rand(H*.10,H*.43),s:rand(.45,1.2),v:rand(8,22)}));
+    rocks=Array.from({length:32},()=>({x:rand(0,W),z:rand(.05,1),r:rand(2,8),tone:rand(0,1)}));
+  }
+  window.addEventListener('resize',resize);resize();
+  const horizon=()=>H*.58, ground=()=>H*.78;
+  function roundedRect(x,y,w,h,r,fill){ctx.beginPath();ctx.roundRect(x,y,w,h,r);ctx.fillStyle=fill;ctx.fill()}
+  function polygon(points,fill,stroke=null){ctx.beginPath();ctx.moveTo(points[0][0],points[0][1]);for(let i=1;i<points.length;i++)ctx.lineTo(points[i][0],points[i][1]);ctx.closePath();ctx.fillStyle=fill;ctx.fill();if(stroke){ctx.strokeStyle=stroke;ctx.stroke()}}
+  function ellipse(x,y,rx,ry,fill){ctx.beginPath();ctx.ellipse(x,y,Math.max(.1,rx),Math.max(.1,ry),0,0,Math.PI*2);ctx.fillStyle=fill;ctx.fill()}
+  function line(x1,y1,x2,y2,color,width=1){ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.strokeStyle=color;ctx.lineWidth=width;ctx.lineCap='round';ctx.stroke()}
+  function drawSky(){
+    const g=ctx.createLinearGradient(0,0,0,H);g.addColorStop(0,'#1889e9');g.addColorStop(.46,'#83d8ff');g.addColorStop(1,'#f8c98b');ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+    const sun=ctx.createRadialGradient(W*.78,H*.19,2,W*.78,H*.19,H*.23);sun.addColorStop(0,'#fffbd6b0');sun.addColorStop(1,'#fffbd600');ctx.fillStyle=sun;ctx.fillRect(0,0,W,H*.6);
+    clouds.forEach(c=>{c.x-=c.v*(state==='playing'?1:.22)*.016;if(c.x<-100)c.x=W+80;ctx.save();ctx.translate(c.x,c.y);ctx.scale(c.s,c.s);ellipse(0,0,27,12,'#ffffffb8');ellipse(-17,4,17,9,'#ffffffc9');ellipse(12,-7,18,16,'#ffffffd9');ellipse(29,3,19,10,'#ffffffb0');ctx.restore()});
+    // Distant angular mesas
+    const hy=horizon();
+    polygon([[0,hy+30],[0,hy-34],[W*.045,hy-48],[W*.095,hy-44],[W*.13,hy+6],[W*.18,hy+15],[W*.23,hy-13],[W*.28,hy+20],[W*.37,hy+3],[W*.43,hy-38],[W*.48,hy-43],[W*.51,hy+8],[W*.60,hy+16],[W*.67,hy-25],[W*.73,hy-32],[W*.79,hy+9],[W*.86,hy-15],[W*.92,hy-31],[W,hy-12],[W,hy+45]],'#b66d57');
+    polygon([[0,hy+26],[W*.04,hy-8],[W*.09,hy-4],[W*.13,hy+24],[W*.22,hy+10],[W*.29,hy+28],[W*.39,hy+1],[W*.46,hy+16],[W*.55,hy+4],[W*.62,hy+25],[W*.7,hy-4],[W*.78,hy+20],[W*.86,hy+3],[W*.94,hy+18],[W,hy+7],[W,hy+55],[0,hy+55]],'#e99a67');
+    // Mesa tops highlights
+    polygon([[W*.025,hy-13],[W*.045,hy-48],[W*.095,hy-44],[W*.13,hy-8],[W*.095,hy-20],[W*.06,hy-22]],'#f4b07b');
+    polygon([[W*.43,hy-38],[W*.48,hy-43],[W*.51,hy+8],[W*.48,hy-5],[W*.46,hy-17]],'#f5b47b');
+  }
+  function drawGround(dt){
+    const hy=horizon(),gy=ground();
+    let g=ctx.createLinearGradient(0,hy,0,H);g.addColorStop(0,'#f8c783');g.addColorStop(.35,'#eaa15c');g.addColorStop(1,'#b75d3e');
+    ctx.fillStyle=g;ctx.fillRect(0,hy,W,H-hy);
+    // perspective bands
+    for(let i=0;i<7;i++){let t=i/7,y=hy+(gy-hy)*t;line(0,y,W,y,`rgba(255,239,177,${.08+t*.08})`,1)}
+    // floor plane lines converge toward horizon
+    for(let i=-8;i<=8;i++){line(W/2+i*W*.025,hy,W/2+i*W*.13,H,'#a95b3a22',1)}
+    groundOffset=(groundOffset+speed*dt)%100;
+    for(let i=0;i<24;i++){
+      let x=((i*83-groundOffset*1.3)% (W+80)+W+80)%(W+80)-40;
+      let y=hy+35+((i*47)%(Math.max(40,H-hy-25)));
+      let scale=(y-hy)/(H-hy);
+      ellipse(x,y,3+scale*7,1.5+scale*3,i%3===0?'#a95e3b88':'#fff0bf77');
+    }
+    // foreground ledge gives the scene a toy-like 3D finish
+    const ledge=H*.91;polygon([[0,ledge],[W,ledge],[W,H],[0,H]],'#9b4936');
+    for(let x=-30;x<W+60;x+=65){polygon([[x,ledge+8],[x+23,ledge+1],[x+46,ledge+10],[x+40,ledge+31],[x+12,ledge+35]],'#b95d41');line(x+8,ledge+15,x+30,ledge+13,'#d27a51',2)}
+  }
+  function drawRock(x,y,s,tone){
+    ctx.save();ctx.translate(x,y);polygon([[-s,0],[-s*.55,-s*.7],[s*.1,-s],[s*.85,-s*.45],[s,0],[s*.35,s*.22]],tone?'#d88a55':'#f2bd7b');polygon([[-s*.55,-s*.7],[s*.1,-s],[s*.25,-s*.25],[-s*.15,-s*.1]],'#ffd59a');ctx.restore();
+  }
+  function drawCactus(o){
+    const x=o.x,y=o.y,s=o.s;ctx.save();ctx.translate(x,y);ctx.scale(s,s);
+    // cast shadow
+    ellipse(3,4,29,7,'#70472d50');
+    // side bevels and 3D cylinder
+    const grad=ctx.createLinearGradient(-20,0,20,0);grad.addColorStop(0,'#167d2b');grad.addColorStop(.25,'#55d52c');grad.addColorStop(.68,'#32b522');grad.addColorStop(1,'#0b7729');
+    roundedRect(-12,-80,24,80,10,grad);ellipse(0,-80,12,5,'#7ee83d');ellipse(0,-78,8,2,'#4dc82e');
+    // arms
+    roundedRect(-26,-51,12,29,6,'#218f2c');roundedRect(-26,-58,12,15,6,'#37bf2c');roundedRect(14,-43,12,24,6,'#218c2b');roundedRect(14,-51,12,15,6,'#3cc52b');
+    line(-5,-67,-5,-13,'#a0f35a',2);line(6,-68,6,-16,'#157a25',2);
+    for(let k=0;k<5;k++){let yy=-67+k*12;line(-12,yy,-16,yy-3,'#e5f7a3',1.4);line(11,yy+3,15,yy,'#d9f38a',1.4)}
+    ctx.restore();
+  }
+  function drawDino(){
+    const x=Math.max(80,W*.19),base=ground()+2-jumpY,scale=clamp(Math.min(W/850,H/520),.68,1.15);
+    const bob=state==='playing'?Math.sin(runCycle*2)*2:0;
+    ctx.save();ctx.translate(x,base+bob);ctx.scale(scale,scale);
+    ellipse(4,4,49,9,'#4d58363d');
+    // tail
+    polygon([[-23,-53],[-55,-48],[-91,-61],[-62,-37],[-35,-31]],'#168d48');
+    polygon([[-56,-48],[-83,-58],[-63,-39]],'#42d866');
+    // legs animate independently
+    const leg=Math.sin(runCycle*2.4)*10*(state==='playing'&&jumpY<2?1:.2);
+    // rear leg
+    polygon([[-21,-34],[-8,-30],[-11,-12],[-22,-7],[-34,-8],[-31,-15],[-22,-17]],'#167d42');
+    polygon([[-23,-13],[-34,-8],[-23,-4],[-8,-4],[-7,-9]],'#f6c45b');
+    // front leg
+    ctx.save();ctx.translate(9,-31);ctx.rotate((jumpY<2?leg*.018:-.08));polygon([[-3,0],[10,0],[15,17],[8,23],[-5,21]],'#22a94f');polygon([[8,18],[18,22],[15,26],[0,26],[-4,22]],'#f8ce68');ctx.restore();
+    // belly and torso
+    ellipse(-1,-41,35,25,'#1b9b4c');
+    polygon([[-29,-42],[-17,-24],[8,-21],[27,-31],[20,-42],[2,-49]],'#f4c75c');
+    // back plates
+    for(let i=0;i<6;i++){let px=-23+i*9;polygon([[px,-59],[px+4,-68],[px+9,-59]],i%2?'#37d65d':'#65e76b')}
+    // neck/head
+    polygon([[9,-50],[20,-67],[37,-71],[51,-65],[55,-52],[47,-42],[24,-42]],'#26b953');
+    polygon([[19,-51],[29,-64],[43,-64],[51,-57],[39,-54]],'#64e76d');
+    // snout and jaw
+    polygon([[35,-58],[56,-57],[65,-50],[60,-42],[42,-42],[35,-47]],'#32c65a');
+    polygon([[41,-43],[61,-43],[56,-36],[44,-36]],'#eaa849');
+    line(43,-45,57,-45,'#fff2bd',2);line(47,-44,47,-41,'#fff2bd',1);line(54,-44,54,-41,'#fff2bd',1);
+    // eye
+    ellipse(42,-62,7,8,'#f9f4cb');ellipse(44,-61,3.5,4.5,'#132e25');ellipse(45,-63,1.4,1.8,'#fff');
+    ellipse(52,-54,2,1,'#127a39');
+    // tiny arms
+    line(24,-42,31,-36,'#168a40',5);line(31,-36,36,-38,'#168a40',4);
+    // texture dots
+    for(let i=0;i<5;i++)ellipse(-15+i*7,-44+(i%2)*7,1.2,1.2,'#a2f27a');
+    ctx.restore();
+  }
+  function spawnObstacle(){
+    const s=rand(.75,1.22)*clamp(H/650,.72,1.12);
+    obstacles.push({x:W+55,y:ground()+1,s,w:30*s,h:82*s,passed:false,variant:Math.random()});
+    if(Math.random()<.18)obstacles.push({x:W+105,y:ground()+1,s:s*.74,w:22*s,h:65*s,passed:false,variant:Math.random()});
+  }
+  function burst(x,y){
+    for(let i=0;i<18;i++)particles.push({x,y,vx:rand(-170,170),vy:rand(-230,30),life:rand(.25,.65),max:.65,size:rand(2,5),color:['#fff1a6','#58e9a3','#ffad68'][i%3]});
+  }
+  function jump(){if(state==='ready'){startGame();return}if(state==='over'){startGame();return}if(state==='paused')return;if(state==='playing'&&jumpY<=1){jumpV=720*clamp(H/650,.75,1.15);burst(Math.max(80,W*.19),ground()-3)}}
+  function startGame(){elapsed=0;score=0;speed=360;spawnTimer=.9;obstacles=[];particles=[];jumpY=0;jumpV=0;runCycle=0;state='playing';overlay.classList.add('hidden');hint.textContent='SPACE / ↑ / TAP TO JUMP';last=performance.now()}
+  function gameOver(){state='over';flash=.25;titleEl.textContent='Run Over!';messageEl.innerHTML=`You scored <b style="color:#8fffd1">${fmt(score)}</b>. ${score>=best?'New personal best — amazing!':'Think you can beat that?'}`;startBtn.textContent='RUN AGAIN  ↻';overlay.classList.remove('hidden');hint.textContent='PRESS SPACE OR TAP TO RETRY'}
+  function pause(){if(state==='playing'){pausedFrom=state;state='paused';titleEl.textContent='Paused';messageEl.textContent='Take a breather. Your run is waiting for you.';startBtn.textContent='RESUME RUN  ▶';overlay.classList.remove('hidden')}else if(state==='paused'){state='playing';overlay.classList.add('hidden');last=performance.now()}}
+  function update(dt){
+    if(state==='playing'){
+      elapsed+=dt;score=Math.floor(elapsed*10);speed=Math.min(760,360+elapsed*7.3);runCycle+=dt*(speed/65);spawnTimer-=dt;
+      if(spawnTimer<=0){spawnObstacle();spawnTimer=rand(1.05,1.65)*Math.max(.62,360/speed)}
+      jumpY+=jumpV*dt;jumpV-=1900*dt;if(jumpY<0){jumpY=0;jumpV=0}
+      const dx=Math.max(80,W*.19),dinoBase=ground()-jumpY;
+      obstacles.forEach(o=>{o.x-=speed*dt;const ox=dx+4,oy=ground()-jumpY-45*clamp(Math.min(W/850,H/520),.68,1.15);if(!o.passed&&o.x+o.w<dx){o.passed=true;score+=5}const near=Math.abs(o.x+o.w*.35-ox)<o.w*.48+18;const vertical=jumpY<o.h*.55;if(near&&vertical){gameOver();burst(dx,dinoBase-35)}})
+      obstacles=obstacles.filter(o=>o.x>-100);
+      if(score>best){best=score;bestEl.textContent=fmt(best);try{localStorage.setItem('dinoRun3DBest',String(best))}catch(e){}}
+      scoreEl.textContent=fmt(score);
+    }
+    particles.forEach(p=>{p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=480*dt;p.life-=dt});particles=particles.filter(p=>p.life>0);
+    rocks.forEach(r=>{r.x-=speed*dt*(.12+r.z*.45);if(r.x<-20){r.x=W+20;r.z=rand(.05,1)}});
+    if(flash>0)flash-=dt;
+  }
+  function render(dt){
+    ctx.setTransform(DPR,0,0,DPR,0,0);drawSky();drawGround(dt);
+    // cacti/rocks in the middle distance
+    rocks.slice().sort((a,b)=>a.z-b.z).forEach(r=>{const y=horizon()+r.z*(H-horizon())*.86;drawRock(r.x,y,r.r*(.3+r.z),r.tone)});
+    obstacles.slice().sort((a,b)=>a.s-b.s).forEach(drawCactus);
+    drawDino();
+    particles.forEach(p=>{ctx.globalAlpha=clamp(p.life/p.max,0,1);ellipse(p.x,p.y,p.size,p.size,p.color);ctx.globalAlpha=1});
+    if(state==='playing'&&score>0){ctx.globalAlpha=.1;ctx.fillStyle='#fff';ctx.fillRect(0,0,W,3);ctx.globalAlpha=1}
+    if(flash>0){ctx.fillStyle=`rgba(255,80,55,${flash*1.4})`;ctx.fillRect(0,0,W,H)}
+  }
+  function loop(now){const dt=Math.min(.033,(now-last)/1000||0);last=now;update(dt);render(dt);requestAnimationFrame(loop)}
+  startBtn.addEventListener('click',()=>{if(state==='paused'){pause()}else startGame()});
+  canvas.addEventListener('pointerdown',e=>{if(e.pointerType==='touch'||e.button===0){if(state==='ready'||state==='over')startGame();else jump()}});
+  document.getElementById('jumpBtn').addEventListener('pointerdown',e=>{e.preventDefault();jump()});
+  window.addEventListener('keydown',e=>{if(['Space','ArrowUp','KeyW'].includes(e.code)){e.preventDefault();if(!e.repeat)jump()}if(e.code==='KeyP'||e.code==='Escape'){e.preventDefault();pause()}if(e.code==='Enter'&&(state==='ready'||state==='over'))startGame()});
+  document.addEventListener('visibilitychange',()=>{if(document.hidden&&state==='playing')pause()});
+  // Draw a scene immediately, then start the animation loop.
+  last=performance.now();requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
